@@ -1,0 +1,416 @@
+//** Lech Wojas **//
+//** This Littlefoot script provides 16 CC faders on midi channlels 1 -16 **//
+/*
+<metadata description="16-Channel Volume and filter fader. Use the right-hand
+row of LEDs on the Lightpad block to switch between volume fader banks, and use
+the left-hand row of LEDs on the Lightpad block to switch between filter
+banks."> <variables> <variable name="faderCC" displayName="Volume Fader CC"
+type="int"  min = "0" max = "127" value = "7"/> <variable name="globalMidi"
+displayName="Midi Channel for last 16 faders" type="int"  min = "1" max = "16"
+value = "3"/> <vector count="16" wantsGetFunctions="true"
+wantsSetFunctions="false"> <variable name="ccNum" type="int" min="0" max="127"
+value="74++" visible="true"/>
+        </vector>
+    </variables>
+</metadata>
+*/
+//////////////////////////////////////////////
+//
+//  Heap
+//
+//////////////////////////////////////////////
+#heapsize : 256 + 64
+
+// Heap Offset
+//      0       Last Volume fader
+//      64      Last Volume velocity
+//      128     Last FX fader
+//      192     Last FX Velocity
+// Heap algorithm: (HeapPos * 4) + Offset
+// int heapOffset;
+// int heapOffsetVel;
+
+int GetHeapValue (int heapOffset, int heapPosition)
+{
+    return getHeapByte (heapOffset + (heapPosition * 4));
+}
+
+void SetHeapValue (int heapOffset, int heapPosition, int heapValue)
+{
+    setHeapByte ((heapPosition * 4) + heapOffset, heapValue);
+}
+
+void SetHeapCC ()
+{
+    for (int i = 0; i < 16; i++)
+    {
+        SetHeapValue (256, i, getCcNum (i));
+        // log(getCcNum(2));
+    }
+}
+
+int xPos;
+int yPos;
+int fadervel;
+int faderBankInteger;
+int playMode;
+int activeFader;
+int activeFaderCC;
+int midiCCnum;
+int midiValue;
+int midiClockCounter;
+int clockPulse;
+bool playBPM;
+bool showByte;
+int faderAddress;
+int heapOffset;
+int bankOffSet;
+
+int convertPositionToPixel (float pos)
+{
+    return int (map (pos, 0.0, 1.9, 0.0, 14.0));
+}
+
+int convertPositionToMidiVelocity (float pos1)
+{
+    return int (map (pos1, 0.0, 1.9, 0.0, 127.0));
+}
+
+// These functions are exclusive to littlefoot and will be initated by the hardware
+void touchStart (int index, float x, float y, float z, float vz)
+{
+    processPosition (index, x, y, x, vz);
+}
+
+void touchMove (int index, float x, float y, float z, float vz)
+{
+    processPosition (index, x, y, x, vz);
+}
+
+void touchEnd (int index, float x, float y, float z, float vz)
+{
+    processPosition (index, x, y, x, vz);
+}
+
+//////////////////////////////////////////
+//////////////////////////////////////////
+void processPosition (int index, float x, float y, float z, float vz)
+{
+    if (playMode == 0)
+    {
+        xPos     = convertPositionToPixel (x);
+        yPos     = convertPositionToPixel (y);
+        fadervel = 129 - convertPositionToMidiVelocity (y);
+        processTouch ();
+    }
+}
+
+void SendCCValue ()
+{
+    if (activeFader < 32)
+    {
+        int midiChannel;
+        int faderToSend;
+        if (activeFader < 16)
+        {
+            midiChannel = activeFader;
+            faderToSend = activeFaderCC;
+        }
+        else
+        {
+            midiChannel = activeFader - 16;
+            // midiChannel = globalMidi-1;
+            faderToSend = GetHeapValue (256, activeFader - 16);
+        }
+        sendCC (midiChannel, faderToSend, fadervel);
+    }
+}
+
+void processTouch ()
+{
+    if (faderBankInteger < 4)
+    {
+        heapOffset = 0;
+        bankOffSet = 0;
+    }
+    else
+    {
+        heapOffset = 128;
+        bankOffSet = 16;
+    }
+    if (xPos >= 2 && xPos < 4)
+    {
+        activeFader   = faderBankInteger * 4;
+        faderAddress  = activeFader - bankOffSet;
+        activeFaderCC = faderCC;
+        SetHeapValue (heapOffset, faderAddress, yPos);
+        SetHeapValue (heapOffset + 64, faderAddress, fadervel);
+    }
+    else if (xPos >= 5 && xPos < 7)
+    {
+        activeFader   = (faderBankInteger * 4) + 1;
+        activeFaderCC = faderCC;
+        faderAddress  = activeFader - bankOffSet;
+        SetHeapValue (heapOffset, faderAddress, yPos);
+        SetHeapValue (heapOffset + 64, faderAddress, fadervel);
+    }
+    else if (xPos >= 8 && xPos < 10)
+    {
+        activeFader   = (faderBankInteger * 4) + 2;
+        activeFaderCC = faderCC;
+        faderAddress  = activeFader - bankOffSet;
+        SetHeapValue (heapOffset, faderAddress, yPos);
+        SetHeapValue (heapOffset + 64, faderAddress, fadervel);
+    }
+    else if (xPos >= 11 && xPos < 13)
+    {
+        activeFader   = (faderBankInteger * 4) + 3;
+        activeFaderCC = faderCC;
+        faderAddress  = activeFader - bankOffSet;
+        SetHeapValue (heapOffset, faderAddress, yPos);
+        SetHeapValue (heapOffset + 64, faderAddress, fadervel);
+    }
+    else
+    {
+        activeFader = 127;
+    }
+    SendCCValue ();
+}
+
+void checkMidiChannel (int byte0)
+{
+    int pixelY = byte0 - 175 - 1;
+    fillPixel (0xFF3322, 14, pixelY);
+}
+
+void handleMIDI (int byte0, int byte1, int byte2)
+{
+    if (byte0 > 175 && byte0 < 192)
+    {
+        midiCCnum = byte1;
+        midiValue = byte2;
+        if (playMode == 1)
+            checkMidiChannel (byte0);
+    }
+    if (byte0 == 250 || byte0 == 251)
+    {
+        playBPM = true;
+    }
+    else if (byte0 == 252)
+    {
+        playBPM          = false;
+        midiClockCounter = 0;
+        clockPulse       = 0;
+    }
+    if (byte0 == 248 && playBPM)
+    {
+        // increment the number of clock messages we have received
+        midiClockCounter++;
+        // if received 6 clock messages - Midi PPQN 24 / 4 = 6
+        if (midiClockCounter >= 6)
+        {
+            // reset counter
+            midiClockCounter = 0;
+            clockPulse++;
+            if (clockPulse >= 16)
+                clockPulse = 0;
+        }
+    }
+}
+
+void handleButtonUp (int index)
+{
+    playMode++;
+    if (playMode >= 3)
+        playMode = 0;
+}
+
+//////////////////////////////////////////
+//////////////////////////////////////////
+void repaint ()
+{
+    clearDisplay ();
+    if (playMode == 0)
+    {
+        fillScreen ();
+    }
+    else if (playMode == 1)
+    {
+        drawNumber (midiCCnum, 0xF42BFF7D, 1, 1);
+        drawNumber (midiValue, 0xFFFFFFFF, 1, 9);
+        fillRect (0x22F3F3, 14, 0, 1, 16);
+    }
+    else if (playMode == 2)
+    {
+        ProcessMidiClock ();
+    }
+}
+
+void ProcessMidiClock ()
+{
+    int xOffSet = 10;
+    int yOffSet = 1;
+    fillRect (0x112233, xOffSet, yOffSet, 4, 4);
+    int pulseColor;
+    int i;
+    int XPos;
+    int YPos;
+    int pixelFill;
+    int textFill;
+    for (i = 0; i < 16; i++)
+    {
+        if (i == clockPulse)
+        {
+            if (i < 4)
+            {
+                xPos = 0;
+                yPos = 0;
+            }
+            else if (i < 8)
+            {
+                xPos = 4;
+                yPos = 1;
+            }
+            else if (i < 12)
+            {
+                xPos = 8;
+                yPos = 2;
+            }
+            else if (i < 16)
+            {
+                xPos = 12;
+                yPos = 3;
+            }
+            pixelFill = 0x22F222;
+            if (i == 0 || i == 4 || i == 8 || i == 12)
+                pixelFill = 0xFFFF22;
+            fillPixel (pixelFill, i + xOffSet - xPos, yOffSet + yPos);
+        }
+        if (i == 0 || i == 4 || i == 8 || i == 12)
+        {
+            if (i == clockPulse)
+            {
+                textFill = 0x4442BF7D;
+            }
+            else
+            {
+                textFill = 0x00000000;
+            }
+            drawNumber (i + 1, textFill, 2, 7);
+        }
+    }
+}
+
+void initialise ()
+{
+    faderBankInteger = 0;
+    SetHeapCC ();
+}
+
+void fillScreen ()
+{
+    int bankOffSet = 0;
+    int faderColor;
+    if (faderBankInteger < 4)
+    {
+        faderColor = 0x42BF7D;
+    }
+    else
+    {
+        faderColor = 0x42CFff;
+    }
+    if (faderBankInteger == 0 || faderBankInteger == 4)
+    {
+        bankOffSet = 0;
+    }
+    else if (faderBankInteger == 1 || faderBankInteger == 5)
+    {
+        bankOffSet = 4;
+    }
+    else if (faderBankInteger == 2 || faderBankInteger == 6)
+    {
+        bankOffSet = 8;
+    }
+    else if (faderBankInteger == 3 || faderBankInteger == 7)
+    {
+        bankOffSet = 12;
+    }
+    for (int i = 0; i < 4; i++)
+    {
+        int faderIndex = (i + bankOffSet);
+        int heapValue  = GetHeapValue (heapOffset, faderIndex);
+        fillRect (faderColor, (i * 3) + 2, heapValue, 2, 15 - heapValue);
+    }
+    if (xPos == 14 && yPos >= 2 && yPos < 4)
+    {
+        faderBankInteger = 0;
+    }
+    if (xPos == 14 && yPos >= 5 && yPos < 7)
+    {
+        faderBankInteger = 1;
+    }
+    if (xPos == 14 && yPos >= 8 && yPos < 10)
+    {
+        faderBankInteger = 2;
+    }
+    if (xPos == 14 && yPos >= 11 && yPos < 13)
+    {
+        faderBankInteger = 3;
+    }
+    if (xPos == 0 && yPos >= 2 && yPos < 4)
+    {
+        faderBankInteger = 4;
+    }
+    if (xPos == 0 && yPos >= 5 && yPos < 7)
+    {
+        faderBankInteger = 5;
+    }
+    if (xPos == 0 && yPos >= 8 && yPos < 10)
+    {
+        faderBankInteger = 6;
+    }
+    if (xPos == 0 && yPos >= 11 && yPos < 13)
+    {
+        faderBankInteger = 7;
+    }
+    fillRect (0xBD10E0, 14, 2, 1, 2);
+    fillRect (0xBD10E0, 14, 5, 1, 2);
+    fillRect (0xBD10E0, 14, 8, 1, 2);
+    fillRect (0xBD10E0, 14, 11, 1, 2);
+    fillRect (0xBD10E0, 0, 2, 1, 2);
+    fillRect (0xBD10E0, 0, 5, 1, 2);
+    fillRect (0xBD10E0, 0, 8, 1, 2);
+    fillRect (0xBD10E0, 0, 11, 1, 2);
+    if (faderBankInteger == 0)
+    {
+        fillRect (0x00FF00, 14, 2, 1, 2);
+    }
+    if (faderBankInteger == 1)
+    {
+        fillRect (0x00FF00, 14, 5, 1, 2);
+    }
+    if (faderBankInteger == 2)
+    {
+        fillRect (0x00FF00, 14, 8, 1, 2);
+    }
+    if (faderBankInteger == 3)
+    {
+        fillRect (0x00FF00, 14, 11, 1, 2);
+    }
+    if (faderBankInteger == 4)
+    {
+        fillRect (0x00FF00, 0, 2, 1, 2);
+    }
+    if (faderBankInteger == 5)
+    {
+        fillRect (0x00FF00, 0, 5, 1, 2);
+    }
+    if (faderBankInteger == 6)
+    {
+        fillRect (0x00FF00, 0, 8, 1, 2);
+    }
+    if (faderBankInteger == 7)
+    {
+        fillRect (0x00FF00, 0, 11, 1, 2);
+    }
+}
