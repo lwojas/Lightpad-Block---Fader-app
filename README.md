@@ -1,4 +1,4 @@
-# Lightpad-Block---Fader-app
+# Lightpad Block - Fader app
 This littlefoot script turns the Roli Lightpad Block into a bank of 16 faders to control midi CC values.
 
 ## Libraries
