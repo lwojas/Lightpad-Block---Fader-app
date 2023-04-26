@@ -14,40 +14,6 @@ value="74++" visible="true"/>
     </variables>
 </metadata>
 */
-//////////////////////////////////////////////
-//
-//  Heap
-//
-//////////////////////////////////////////////
-#heapsize : 256 + 64
-
-// Heap Offset
-//      0       Last Volume fader
-//      64      Last Volume velocity
-//      128     Last FX fader
-//      192     Last FX Velocity
-// Heap algorithm: (HeapPos * 4) + Offset
-// int heapOffset;
-// int heapOffsetVel;
-
-int GetHeapValue (int heapOffset, int heapPosition)
-{
-    return getHeapByte (heapOffset + (heapPosition * 4));
-}
-
-void SetHeapValue (int heapOffset, int heapPosition, int heapValue)
-{
-    setHeapByte ((heapPosition * 4) + heapOffset, heapValue);
-}
-
-void SetHeapCC ()
-{
-    for (int i = 0; i < 16; i++)
-    {
-        SetHeapValue (256, i, getCcNum (i));
-        // log(getCcNum(2));
-    }
-}
 
 int xPos;
 int yPos;
@@ -66,6 +32,42 @@ int faderAddress;
 int heapOffset;
 int bankOffSet;
 
+// Heap memory allocation
+#heapsize : 256 + 64
+
+// Heap Offset
+//      0       Last Volume fader
+//      64      Last Volume velocity
+//      128     Last FX fader
+//      192     Last FX Velocity
+// To access heap: (HeapPos * 4) + Offset
+
+int GetHeapValue (int heapOffset, int heapPosition)
+{
+    return getHeapByte (heapOffset + (heapPosition * 4));
+}
+
+void SetHeapValue (int heapOffset, int heapPosition, int heapValue)
+{
+    setHeapByte ((heapPosition * 4) + heapOffset, heapValue);
+}
+
+void SetHeapCC ()
+{
+    for (int i = 0; i < 16; i++)
+    {
+        SetHeapValue (256, i, getCcNum (i));
+    }
+}
+
+// Built-in function to init the application
+void initialise ()
+{
+    faderBankInteger = 0;
+    SetHeapCC ();
+}
+
+// Tools
 int convertPositionToPixel (float pos)
 {
     return int (map (pos, 0.0, 1.9, 0.0, 14.0));
@@ -76,7 +78,10 @@ int convertPositionToMidiVelocity (float pos1)
     return int (map (pos1, 0.0, 1.9, 0.0, 127.0));
 }
 
-// These functions are exclusive to littlefoot and will be initated by the hardware
+//////////////////////////
+//////////////////////////
+
+// Built-in Touch functions,
 void touchStart (int index, float x, float y, float z, float vz)
 {
     processPosition (index, x, y, x, vz);
@@ -92,8 +97,6 @@ void touchEnd (int index, float x, float y, float z, float vz)
     processPosition (index, x, y, x, vz);
 }
 
-//////////////////////////////////////////
-//////////////////////////////////////////
 void processPosition (int index, float x, float y, float z, float vz)
 {
     if (playMode == 0)
@@ -102,27 +105,6 @@ void processPosition (int index, float x, float y, float z, float vz)
         yPos     = convertPositionToPixel (y);
         fadervel = 129 - convertPositionToMidiVelocity (y);
         processTouch ();
-    }
-}
-
-void SendCCValue ()
-{
-    if (activeFader < 32)
-    {
-        int midiChannel;
-        int faderToSend;
-        if (activeFader < 16)
-        {
-            midiChannel = activeFader;
-            faderToSend = activeFaderCC;
-        }
-        else
-        {
-            midiChannel = activeFader - 16;
-            // midiChannel = globalMidi-1;
-            faderToSend = GetHeapValue (256, activeFader - 16);
-        }
-        sendCC (midiChannel, faderToSend, fadervel);
     }
 }
 
@@ -177,12 +159,40 @@ void processTouch ()
     SendCCValue ();
 }
 
+//////////////////////////
+//////////////////////////
+
+// Midi functions
+
+// Send CC
+void SendCCValue ()
+{
+    if (activeFader < 32)
+    {
+        int midiChannel;
+        int faderToSend;
+        if (activeFader < 16)
+        {
+            midiChannel = activeFader;
+            faderToSend = activeFaderCC;
+        }
+        else
+        {
+            midiChannel = activeFader - 16;
+            // midiChannel = globalMidi-1;
+            faderToSend = GetHeapValue (256, activeFader - 16);
+        }
+        sendCC (midiChannel, faderToSend, fadervel);
+    }
+}
+
 void checkMidiChannel (int byte0)
 {
     int pixelY = byte0 - 175 - 1;
     fillPixel (0xFF3322, 14, pixelY);
 }
 
+// Built-in function to read and process incoming midi messages
 void handleMIDI (int byte0, int byte1, int byte2)
 {
     if (byte0 > 175 && byte0 < 192)
@@ -215,34 +225,6 @@ void handleMIDI (int byte0, int byte1, int byte2)
             if (clockPulse >= 16)
                 clockPulse = 0;
         }
-    }
-}
-
-void handleButtonUp (int index)
-{
-    playMode++;
-    if (playMode >= 3)
-        playMode = 0;
-}
-
-//////////////////////////////////////////
-//////////////////////////////////////////
-void repaint ()
-{
-    clearDisplay ();
-    if (playMode == 0)
-    {
-        fillScreen ();
-    }
-    else if (playMode == 1)
-    {
-        drawNumber (midiCCnum, 0xF42BFF7D, 1, 1);
-        drawNumber (midiValue, 0xFFFFFFFF, 1, 9);
-        fillRect (0x22F3F3, 14, 0, 1, 16);
-    }
-    else if (playMode == 2)
-    {
-        ProcessMidiClock ();
     }
 }
 
@@ -301,12 +283,40 @@ void ProcessMidiClock ()
     }
 }
 
-void initialise ()
+// Built-in function to process button press, we use it to switch display modes
+void handleButtonUp (int index)
 {
-    faderBankInteger = 0;
-    SetHeapCC ();
+    playMode++;
+    if (playMode >= 3)
+        playMode = 0;
 }
 
+//////////////////////////////////////////
+//////////////////////////////////////////
+
+// Built in function loop, runs @25fps
+void repaint ()
+{
+    clearDisplay ();
+    if (playMode == 0)
+    {
+        fillScreen ();
+    }
+    else if (playMode == 1)
+    {
+        // Show the incoming CC number and realtime value
+        drawNumber (midiCCnum, 0xF42BFF7D, 1, 1);
+        drawNumber (midiValue, 0xFFFFFFFF, 1, 9);
+        fillRect (0x22F3F3, 14, 0, 1, 16);
+    }
+    else if (playMode == 2)
+    {
+        // Show a visual representation of the midi clock signal
+        ProcessMidiClock ();
+    }
+}
+
+// If playmode is 0 this function will run every 40ms - renders the faders
 void fillScreen ()
 {
     int bankOffSet = 0;
